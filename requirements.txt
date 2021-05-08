@@ -1,0 +1,2 @@
+unicorn_binance_websocket_api
+websockets==8.1
