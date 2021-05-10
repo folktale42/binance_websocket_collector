@@ -10,12 +10,12 @@ from websockets.headers import build_authorization_basic
 from ssl import CERT_NONE, SSLContext, PROTOCOL_TLS_CLIENT
 
 
-class WebSocketClient(object):
+class NifiWebSocketClient(object):
     """
     Handles connection with a WebSocket server.
 
     >>> import asyncio
-    >>> wsconn = WebSocketClient("", "", None, "", "")
+    >>> wsconn = NifiWebSocketClient("", "", None, "", "")
     >>> async def run():
     ...     await (await wsconn.__aenter__()).send("test")
     >>> asyncio.run(run())
@@ -47,19 +47,26 @@ class WebSocketClient(object):
 
         # Create connection with Basic Auth.
         self._conn = websockets.client.connect(
-            uri=uri, ssl=self.ssl_context, extra_headers={"Authorization": build_authorization_basic(self.user, self.password)}, **self.other_conn_args
+            uri=uri,
+            ssl=self.ssl_context,
+            extra_headers={
+                "Authorization": build_authorization_basic(
+                    self.user,
+                    self.password
+                )
+            },
+            ping_interval=None,
+            ** self.other_conn_args
         )
 
         try:
             _ws_client = await self._conn.__aenter__()
-            logging.info(f"Connected to {uri}. State: {_ws_client.state}")
+            logging.info(
+                f'Connected to {uri}. State: {_ws_client.open and "Open" or "Not Open"}'
+            )
         except websockets.exceptions.WebSocketException as we:
             logging.warning(
-                f"Websockets lib exception while awaiting on WebSocketClient.__aenter__(): {we}."
-            )
-        except BaseException as be:
-            logging.warning(
-                f"Exception while awaiting on WebSocketClient.__aenter__(): {be}."
+                f"Websockets lib exception while awaiting on NifiWebSocketClient.__aenter__(): {we}."
             )
 
         return _ws_client
@@ -69,13 +76,8 @@ class WebSocketClient(object):
             await self._conn.__aexit__(*args, **kwargs)
         except websockets.exceptions.WebSocketException as we:
             logging.warning(
-                f"Websockets lib exception while awaiting on WebSocketClient.__aexit__(): {we}."
+                f"Websockets lib exception while awaiting on NifiWebSocketClient.__aexit__(): {we}."
             )
-        except BaseException as be:
-            logging.warning(
-                f"Exception while awaiting on WebSocketClient.__aexit__(): {be}."
-            )
-            sys.exc_info()
 
 
 if __name__ == '__main__':
