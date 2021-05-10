@@ -70,8 +70,10 @@ def process_binance_stream(
         async with websocket_client as ws:
             count = 0
             count_k = 0
+
             while True:
                 count = count + 1
+
                 if count % 1000 == 0:
                     count_k = count_k + 1
                     count = 0
@@ -81,26 +83,35 @@ def process_binance_stream(
                     logging.info(
                         f"Current connection state: {ws.state} (CONNECTING=0, OPEN=1, CLOSING=2, CLOSED=3)."
                     )
-                    # ping_future = await ws.ping()
-                    # logging.info(f"Ping: {await ping_future}.")
+
                 if binance_ws_api_manager.is_manager_stopping():
                     break
+
                 oldest_event = binance_ws_api_manager.pop_stream_data_from_stream_buffer(
                     stream_buffer_name=stream_id
                 )
 
                 if not oldest_event:
                     time.sleep(0.01)
+                    continue
                 else:
                     try:
                         await ws.send(oldest_event)
+                        logging.debug(f"Sent event: {oldest_event}")
                     except websockets.exceptions.ConnectionClosedError as cce:
                         logging.error(
-                            f"Connection close while awaiting on websocket send due to:{cce}."
+                            f"ConnectionClosedError while awaiting on Nifi WebSocket send due to:{cce}."
                         )
-                    logging.debug(f"Sent event: {oldest_event}")
-            logging.warn(f"Ya getting out of the stream processing loop.")
+                    except websockets.exceptions.WebSocketException as wse:
+                        logging.warning(
+                            f"WebSocketException while awaiting on Nifi WebSocket send due to: {wse}"
+                        )
+                    except BaseException as be:
+                        logging.warning(
+                            f"Exception while awaiting on Nifi WebSocket send due to: {be}"
+                        )
 
+            logging.warn(f"Ya getting out of the stream processing loop.")
     asyncio.run(run())
     logging.warn(f"Exiting stream id {stream_id}'s processing thread.")
 
@@ -131,14 +142,11 @@ def create_binance_ws_stream(api_manager: BinanceWebSocketApiManager, channels: 
 
 def stop_managers(threads: list):
     """
-    Stops all managers and all streams then blocks until all stream processing threads in list exit or timeout.
+    Stops all managers and all streams.
     """
     for k, manager in API_MANAGERS.items():
-        logging.info(f"Stopping {k} manager and all it's streams.")
+        logging.info(f"Stopping manager {k} and all it's streams.")
         manager.stop_manager_with_all_streams()
-
-    for thread in threads:
-        thread.join(timeout=5)
 
 
 def get_ws_client():
@@ -152,7 +160,6 @@ def get_ws_client():
 
 
 def main():
-
     try:
         streams = dict()
 
@@ -179,22 +186,19 @@ def main():
                 stream_params_tuple[0],
                 get_ws_client(),
             )  # { stream_id: (stream_label, binance_ws_api_manager, websocket_client), ... }
-    except Exception as e:
-        logging.error(f"Failed to create streams due to: {e}.")
+    except BaseException as be:
+        logging.error(f"Failed to create streams due to: {be}.")
         sys.exit(1)
 
     with concurrent.futures.ThreadPoolExecutor() as pool:
-        results = []
-
-        for k, v in streams.items():
-            results.append(
-                pool.submit(
-                    process_binance_stream,
-                    v[1],  # Api Manager
-                    k,     # Stream Id
-                    v[2]   # WebSocket Client
-                )
-            )
+        results = [
+            pool.submit(
+                process_binance_stream,
+                v[1],  # Api Manager
+                k,     # Stream Id
+                v[2]   # WebSocket Client
+            ) for k, v in streams.items()
+        ]
 
         for result in results:
             logging.info(f'Custom thread pool {str(result)}')
