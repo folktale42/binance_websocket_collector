@@ -88,7 +88,8 @@ def process_binance_stream(
                 oldest_event = binance_ws_api_manager.pop_stream_data_from_stream_buffer(
                     stream_buffer_name=stream_id
                 )
-                if oldest_event is False:
+
+                if not oldest_event:
                     time.sleep(0.01)
                 else:
                     try:
