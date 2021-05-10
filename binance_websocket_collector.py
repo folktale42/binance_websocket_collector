@@ -50,9 +50,9 @@ class NifiWebSocketCredentials:
 
 
 class NifiWebSocketParameters:
-    BASE_URL = ""
-    DEFAULT_PATH = ""
-    PORT = None
+    BASE_URL = os.environ.get("NIFI_BASE_URL")
+    DEFAULT_PATH = os.environ.get("NIFI_DEFAULT_PATH")
+    PORT = int(os.environ.get("NIFI_DEFAULT_PORT"))
 
 
 def process_binance_stream(
