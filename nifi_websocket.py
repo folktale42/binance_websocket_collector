@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import websockets
 import logging
+from ssl import CERT_NONE, PROTOCOL_TLS_CLIENT, SSLContext
+
+import websockets
 from websockets.client import WebSocketClientProtocol
 from websockets.headers import build_authorization_basic
-from ssl import CERT_NONE, SSLContext, PROTOCOL_TLS_CLIENT
 
 
 class NifiWebSocketClient(object):
     """
-    Handles connection with a WebSocket server.
+    Context Manager for connections to a listening WebSocket server on Apache Nifi.
+
     Connects using Basic Auth.
     Does not verify SSL server certificate.
+    Does not send pings/expects pongs. 
 
     >>> import asyncio
     >>> wsconn = NifiWebSocketClient("", "", None, "", "")
@@ -20,15 +23,14 @@ class NifiWebSocketClient(object):
     >>> asyncio.run(run())
     """
 
-    def __init__(self, base_url: str, path: str, port: int, user: str, password: str, **kwargs) -> None:
+    def __init__(self, base_url: str, path: str, port: int, user: str, password: str, **kwargs_to_conn) -> None:
         super().__init__()
         self.base_url = base_url
         self.path = path
         self.port = port
         self.user = user
         self.password = password
-        self.exited = False
-        self.other_conn_args = kwargs
+        self.other_conn_args = kwargs_to_conn
         self.ssl_context = 'wss' in self.base_url and SSLContext(
             PROTOCOL_TLS_CLIENT) or None
         self._conn = None
@@ -54,7 +56,8 @@ class NifiWebSocketClient(object):
                     self.password
                 )
             },
-            ping_interval=None,
+            ping_interval=None,         # do not send pings
+            ping_timeout=None,          # do not expect pongs
             ** self.other_conn_args
         )
 
@@ -73,6 +76,7 @@ class NifiWebSocketClient(object):
     async def __aexit__(self, *args, **kwargs):
         try:
             await self._conn.__aexit__(*args, **kwargs)
+            logging.info(f'Disconnected from {self._get_uri()}.')
         except websockets.exceptions.WebSocketException as we:
             logging.warning(
                 f"Websockets lib exception while awaiting on NifiWebSocketClient.__aexit__(): {we}."
