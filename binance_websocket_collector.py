@@ -72,7 +72,7 @@ def process_binance_stream(
     websocket_client: NifiWebSocketClient
 ):
     """
-    Process a streams buffered events and dispatches them.
+    Process a stream's buffered events and dispatches them.
 
     :param ws_api_manager: Manages the websocket API.
     :param stream_id: The id of the websocket stream to process.

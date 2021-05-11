@@ -10,6 +10,8 @@ from ssl import CERT_NONE, SSLContext, PROTOCOL_TLS_CLIENT
 class NifiWebSocketClient(object):
     """
     Handles connection with a WebSocket server.
+    Connects using Basic Auth.
+    Does not verify SSL server certificate.
 
     >>> import asyncio
     >>> wsconn = NifiWebSocketClient("", "", None, "", "")
