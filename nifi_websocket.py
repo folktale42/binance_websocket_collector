@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import math
-import sys
-import time
 import websockets
 import logging
 from websockets.client import WebSocketClientProtocol
