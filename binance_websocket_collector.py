@@ -7,13 +7,14 @@ import os
 import asyncio
 import concurrent.futures
 
+from websockets import WebSocketException
 from unicorn_binance_websocket_api.unicorn_binance_websocket_api_manager import BinanceWebSocketApiManager
-import websockets
-from nifi_websocket import WebSocketClient
+from nifi_websocket import NifiWebSocketClient
 
 
 logging.basicConfig(level=logging.INFO)
-API_MANAGERS = {
+
+BINANCE_WS_API_MANAGERS = {
     'futures': BinanceWebSocketApiManager(
         exchange="binance.com-futures"
     )
@@ -23,7 +24,7 @@ API_MANAGERS = {
 class StreamsParameters:
     PRIVATE = [
         (
-            API_MANAGERS['futures'],
+            BINANCE_WS_API_MANAGERS['futures'],
             'arr',
             '!userData',
             'binance_futures_user_data',
@@ -31,7 +32,7 @@ class StreamsParameters:
     ]
     PUBLIC = [
         (
-            API_MANAGERS['futures'],
+            BINANCE_WS_API_MANAGERS['futures'],
             'trade',
             'btcusdt',
             'binance_futures_trade_btcusdt',
@@ -55,10 +56,20 @@ class NifiWebSocketParameters:
     PORT = int(os.environ.get("NIFI_DEFAULT_PORT"))
 
 
+class BinanceStreamClosedException(Exception):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
+
+
+class CreateBinanceStreamFailedException(Exception):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
+
+
 def process_binance_stream(
     binance_ws_api_manager: BinanceWebSocketApiManager,
     stream_id: str,
-    websocket_client: WebSocketClient
+    websocket_client: NifiWebSocketClient
 ):
     """
     Process a streams buffered events and dispatches them.
@@ -71,52 +82,57 @@ def process_binance_stream(
             count = 0
             count_k = 0
 
-            while True:
-                count = count + 1
+            try:
+                while not ws.closed:
+                    count = count + 1
 
-                if count % 1000 == 0:
-                    count_k = count_k + 1
-                    count = 0
-                    logging.info(
-                        f"Stream id {stream_id} processing loop iteration #{count_k}k."
+                    if count % 1000 == 0:
+                        count_k = count_k + 1
+                        count = 0
+                        logging.info(
+                            f"Stream id {stream_id} processing loop iteration #{count_k}k."
+                        )
+
+                    if binance_ws_api_manager.is_manager_stopping():
+                        raise BinanceStreamClosedException(
+                            f"Manager for stream {stream_id} is stopping."
+                        )
+
+                    oldest_event = binance_ws_api_manager.pop_stream_data_from_stream_buffer(
+                        stream_buffer_name=stream_id
                     )
-                    logging.info(
-                        f"Current connection state: {ws.state} (CONNECTING=0, OPEN=1, CLOSING=2, CLOSED=3)."
-                    )
 
-                if binance_ws_api_manager.is_manager_stopping():
-                    break
-
-                oldest_event = binance_ws_api_manager.pop_stream_data_from_stream_buffer(
-                    stream_buffer_name=stream_id
-                )
-
-                if not oldest_event:
-                    time.sleep(0.01)
-                    continue
-                else:
-                    try:
+                    if not oldest_event:
+                        time.sleep(0.01)
+                        continue
+                    else:
                         await ws.send(oldest_event)
-                        logging.debug(f"Sent event: {oldest_event}")
-                    except websockets.exceptions.ConnectionClosedError as cce:
-                        logging.error(
-                            f"ConnectionClosedError while awaiting on Nifi WebSocket send due to:{cce}."
-                        )
-                    except websockets.exceptions.WebSocketException as wse:
-                        logging.warning(
-                            f"WebSocketException while awaiting on Nifi WebSocket send due to: {wse}"
-                        )
-                    except BaseException as be:
-                        logging.warning(
-                            f"Exception while awaiting on Nifi WebSocket send due to: {be}"
-                        )
+                        logging.debug(f"Sent event: {oldest_event}.")
 
-            logging.warn(f"Ya getting out of the stream processing loop.")
-    asyncio.run(run())
-    logging.warn(f"Exiting stream id {stream_id}'s processing thread.")
+            except WebSocketException as wse:
+                logging.warning(
+                    f"WebSocket lib exception while awaiting on Nifi WebSocket send. Retrying. Cause: {wse}"
+                )
+    while True:
+        try:
+            asyncio.run(run())
+        except BinanceStreamClosedException:
+            logging.info(
+                f"Binance stream {stream_id} closed. Exiting processing loop for stream {stream_id}."
+            )
+            break
 
 
-def create_binance_ws_stream(api_manager: BinanceWebSocketApiManager, channels: str, markets: str, stream_label: str, api_key=False, api_secret=False, symbols=False, **kwargs):
+def create_binance_ws_stream(
+        api_manager: BinanceWebSocketApiManager,
+        channels: str,
+        markets: str,
+        stream_label: str,
+        api_key=False,
+        api_secret=False,
+        symbols=False,
+        **kwargs
+):
     """
     Create a new Binance websocket stream and return the stream id.
     """
@@ -132,31 +148,48 @@ def create_binance_ws_stream(api_manager: BinanceWebSocketApiManager, channels: 
     )
 
     if not stream_id:
-        raise Exception(f"Failed to create stream {stream_label}.")
+        raise CreateBinanceStreamFailedException(
+            f"Failed to create stream {stream_label}."
+        )
 
     logging.info(
-        f"Stream {stream_label} created. Channels: {channels}. Markets: {markets}. Symbols {symbols}. Stream id: {stream_id}."
+        f"Stream {stream_label} created. Channels: {channels}. Markets: {markets}. Symbols: {symbols}. Stream id: {stream_id}."
     )
     return stream_id
 
 
-def stop_managers(threads: list):
+def stop_managers():
     """
-    Stops all managers and all streams.
+    Stops all Binance API managers with all their streams.
     """
-    for k, manager in API_MANAGERS.items():
+    for k, manager in BINANCE_WS_API_MANAGERS.items():
         logging.info(f"Stopping manager {k} and all it's streams.")
         manager.stop_manager_with_all_streams()
 
 
 def get_ws_client():
-    return WebSocketClient(
+    """
+    Returns a NifiWebSocketClient with environment parameters.
+    """
+    return NifiWebSocketClient(
         NifiWebSocketParameters.BASE_URL,
         NifiWebSocketParameters.DEFAULT_PATH,
         NifiWebSocketParameters.PORT,
         NifiWebSocketCredentials.USER,
         NifiWebSocketCredentials.PASSWORD
     )
+
+
+def isAllDone(results):
+    """
+    Returns a boolean indicating whether all results have status done.
+    """
+    done = 0
+    for r in results:
+        if r.done():
+            done += 1
+
+    return done == len(results)
 
 
 def main():
@@ -186,8 +219,9 @@ def main():
                 stream_params_tuple[0],
                 get_ws_client(),
             )  # { stream_id: (stream_label, binance_ws_api_manager, websocket_client), ... }
-    except BaseException as be:
-        logging.error(f"Failed to create streams due to: {be}.")
+    except CreateBinanceStreamFailedException as csfe:
+        logging.error(f"Failed to create streams due to: {csfe}.")
+        print(sys.exc_info()[2])
         sys.exit(1)
 
     with concurrent.futures.ThreadPoolExecutor() as pool:
@@ -200,12 +234,12 @@ def main():
             ) for k, v in streams.items()
         ]
 
-        for result in results:
-            logging.info(f'Custom thread pool {str(result)}')
-
         try:
             while True:
-                for manager_name, manager in API_MANAGERS.items():
+                if isAllDone(results):
+                    break
+
+                for manager_name, manager in BINANCE_WS_API_MANAGERS.items():
                     manager.print_summary(
                         f"\n######## {manager_name.capitalize()} Api Manager Summary ########"
                     )
