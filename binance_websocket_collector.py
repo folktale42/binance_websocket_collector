@@ -278,15 +278,16 @@ def main():
                     break
 
                 for manager_name, manager in BINANCE_WS_API_MANAGERS.items():
-                    manager.print_summary(
-                        f"\n######## {manager_name.capitalize()} Api Manager Summary ########"
-                    )
+                    summary_header = f"######## {manager_name.capitalize()} Api Manager Summary ########"
+                    print(summary_header)
+                    manager.print_summary()
                     logging.info(
                         f"{manager_name.capitalize()} Api Manager stream buffer length: {manager.get_stream_buffer_length()}."
                     )
                     logging.info(
                         f"{manager_name.capitalize()} Api Manager endpoint errors: {manager.get_errors_from_endpoints()}."
                     )
+                    print("#" * len(summary_header))
         finally:
             logging.info("Exiting...")
             stop_binance_ws_api_managers()
