@@ -5,7 +5,13 @@ from ssl import CERT_NONE, PROTOCOL_TLS_CLIENT, SSLContext
 
 import websockets
 from websockets.client import WebSocketClientProtocol
+from websockets.exceptions import WebSocketException
 from websockets.headers import build_authorization_basic
+
+
+class NifiWebSocketConnectionException(WebSocketException):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
 
 
 class NifiWebSocketClient(object):
@@ -68,7 +74,10 @@ class NifiWebSocketClient(object):
             )
         except websockets.exceptions.WebSocketException as we:
             logging.warning(
-                f"Websockets lib exception while awaiting on NifiWebSocketClient.__aenter__(): {we}."
+                f"Websockets lib exception while awaiting on NifiWebSocketClient.__aenter__(). Cause: {we}."
+            )
+            raise NifiWebSocketConnectionException(
+                f"Failed to estabilish a connection with {uri}."
             )
 
         return _ws_client
@@ -79,7 +88,7 @@ class NifiWebSocketClient(object):
             logging.info(f'Disconnected from {self._get_uri()}.')
         except websockets.exceptions.WebSocketException as we:
             logging.warning(
-                f"Websockets lib exception while awaiting on NifiWebSocketClient.__aexit__(): {we}."
+                f"Websockets lib exception while awaiting on NifiWebSocketClient.__aexit__(). Cause: {we}."
             )
 
 
