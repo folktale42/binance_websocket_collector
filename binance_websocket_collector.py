@@ -88,14 +88,14 @@ def process_binance_stream(
     nifi_websocket_client: NifiWebSocketClient
 ):
     """
-    Process a stream's buffered events and dispatches them.
+    Retrieves received events from the stream's buffer and dispatches them to Apache Nifi.
     """
     async def run():
-        # Wait until there is data in the stream buffer before connecting to preserve resources.
+        # To preserve resources wait until there is data in the stream buffer before connecting.
         while get_stream_buffer_length(binance_ws_api_manager, stream_id) == 0:
             await asyncio.sleep(0.025)
 
-        logging.info(f"Starting processing loop for stream {stream_id}")
+        logging.info(f"Starting processing loop for stream {stream_id}.")
 
         async with nifi_websocket_client as ws:
             count = 0
@@ -138,9 +138,6 @@ def process_binance_stream(
     while True:
         try:
             asyncio.run(run())
-            logging.info(
-                f"Retrying processing loop for Binance stream {stream_id}."
-            )
         except BinanceStreamClosedException:
             logging.info(
                 f"Binance stream {stream_id} closed. Exiting processing loop."
@@ -148,8 +145,12 @@ def process_binance_stream(
             break
         except BaseException as be:
             logging.warning(
-                f"Exception while processing stream {stream_id}. Retrying. Cause: {be}."
+                f"Exception while processing stream {stream_id}. Cause: {be}."
             )
+        logging.info(
+            f"Retrying processing loop for Binance stream {stream_id} in 1 second."
+        )
+        time.sleep(1)
 
 
 def create_binance_ws_stream(
