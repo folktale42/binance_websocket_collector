@@ -147,7 +147,8 @@ def process_binance_stream(
             break
         except BaseException as be:
             logging.warning(
-                f"Exception while processing stream {stream_id}. Cause: {be}."
+                f"Exception while processing stream {stream_id}. Cause: {be}.",
+                exc_info=True
             )
         logging.info(
             f"Retrying processing loop for Binance stream {stream_id} in 1 second."
@@ -253,8 +254,9 @@ def main():
                 get_nifi_ws_client(),
             )
     except CreateBinanceStreamFailedException as csfe:
-        logging.error(f"Failed to create streams due to: {csfe}.")
-        print(sys.exc_info()[2])
+        logging.error(
+            f"Failed to create streams due to: {csfe}.", exc_info=True
+        )
         sys.exit(1)
 
     with concurrent.futures.ThreadPoolExecutor() as pool:
